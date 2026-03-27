@@ -211,10 +211,10 @@ async def run_claude(prompt: str, work_dir: str) -> str:
         proc = await asyncio.create_subprocess_exec(
             *cmd, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE, cwd=work_dir)
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=900)
         out = stdout.decode(errors="replace").strip()
         return out or f"[exit {proc.returncode}] {stderr.decode(errors='replace').strip()}"
-    except asyncio.TimeoutError: return "⏱ Claude timed out (5m)"
+    except asyncio.TimeoutError: return "⏱ Claude timed out (15m)"
     except FileNotFoundError:    return "❌ `claude` not found"
     except Exception as e:       return f"❌ {e}"
 
@@ -226,10 +226,10 @@ async def run_cursor(prompt: str, work_dir: str) -> str:
         proc = await asyncio.create_subprocess_exec(
             *cmd, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE, cwd=work_dir)
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=900)
         out = stdout.decode(errors="replace").strip()
         return out or f"[exit {proc.returncode}] {stderr.decode(errors='replace').strip()}"
-    except asyncio.TimeoutError: return "⏱ Cursor timed out (5m)"
+    except asyncio.TimeoutError: return "⏱ Cursor timed out (15m)"
     except FileNotFoundError:    return "❌ `agent` (Cursor CLI) not found"
     except Exception as e:       return f"❌ {e}"
 

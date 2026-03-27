@@ -1,0 +1,4 @@
+.env
+sandbox/
+config.json
+.DS_Store
