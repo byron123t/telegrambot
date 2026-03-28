@@ -2,3 +2,4 @@
 sandbox/
 config.json
 .DS_Store
+sessions.json

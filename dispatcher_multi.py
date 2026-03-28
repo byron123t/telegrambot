@@ -83,6 +83,34 @@ log = logging.getLogger(__name__)
 active_dirs: dict = {}
 pending:     dict = {}
 
+# ---------------------------------------------------------------------------
+# Session persistence  (chat_id, work_dir) → claude session_id
+# ---------------------------------------------------------------------------
+
+SESSIONS_PATH = Path(__file__).parent / "sessions.json"
+
+
+def _load_sessions() -> dict:
+    if SESSIONS_PATH.exists():
+        try:
+            raw = json.loads(SESSIONS_PATH.read_text())
+            return {(int(k.split("|", 1)[0]), k.split("|", 1)[1]): v
+                    for k, v in raw.items()}
+        except Exception:
+            return {}
+    return {}
+
+
+def _save_sessions(sessions: dict):
+    try:
+        raw = {f"{k[0]}|{k[1]}": v for k, v in sessions.items()}
+        SESSIONS_PATH.write_text(json.dumps(raw, indent=2))
+    except Exception as e:
+        log.warning(f"Could not save sessions: {e}")
+
+
+sessions: dict = _load_sessions()
+
 ALIASES  = {"cc": "claude", "cur": "cursor", "github": "gh", "p": "proj"}
 PREFIXES = {"win", "windows", "mac", "macbook", "linux", "lnx", "all"}
 
@@ -222,18 +250,42 @@ async def generate_commit_message(diff: str) -> str:
 # Agent runners
 # ---------------------------------------------------------------------------
 
-async def run_claude(prompt: str, work_dir: str) -> str:
-    cmd = ["claude", "-p", prompt, "--output-format", "text",
+async def run_claude(prompt: str, work_dir: str, chat_id: int = 0) -> str:
+    session_key = (chat_id, work_dir)
+    session_id  = sessions.get(session_key)
+
+    cmd = ["claude", "-p", prompt, "--output-format", "json",
            "--allowedTools", "Bash", "Read", "Write", "Edit"]
-    log.info(f"Claude in {work_dir}: {prompt[:60]}")
+    if session_id:
+        cmd += ["--resume", session_id]
+
+    log.info(f"Claude in {work_dir} (session: {session_id or 'new'}): {prompt[:60]}")
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE, cwd=work_dir)
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
-        out = stdout.decode(errors="replace").strip()
-        return out or f"[exit {proc.returncode}] {stderr.decode(errors='replace').strip()}"
-    except asyncio.TimeoutError: return "⏱ Claude timed out (5m)"
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=900)
+        raw = stdout.decode(errors="replace").strip()
+
+        result = ""
+        for line in reversed(raw.splitlines()):
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                data = json.loads(line)
+                if "result" in data:
+                    result = data["result"] or ""
+                    sid = data.get("session_id")
+                    if sid:
+                        sessions[session_key] = sid
+                        _save_sessions(sessions)
+                    break
+            except json.JSONDecodeError:
+                continue
+
+        return result or f"[exit {proc.returncode}] {stderr.decode(errors='replace').strip()}"
+    except asyncio.TimeoutError: return "⏱ Claude timed out (15m)"
     except FileNotFoundError:    return "❌ `claude` not found"
     except Exception as e:       return f"❌ {e}"
 
@@ -434,13 +486,20 @@ async def main():
             if not args:
                 await update.message.reply_text("Usage: `claude: <prompt>`", parse_mode="Markdown")
                 return
+            if args.strip().lower() == "new":
+                sessions.pop((chat_id, wd), None)
+                _save_sessions(sessions)
+                await update.message.reply_text(
+                    f"🔄 Claude session cleared for `{Path(wd).name}`.", parse_mode="Markdown")
+                return
             ack = await update.message.reply_text(
                 f"⏳ *{MACHINE_NAME}* — Claude in `{Path(wd).name}`…", parse_mode="Markdown")
-            result = truncate(await run_claude(args, wd))
+            result = truncate(await run_claude(args, wd, chat_id))
+            sid = sessions.get((chat_id, wd))
+            header = f"✅ *{MACHINE_NAME}* — Claude (`{Path(wd).name}`)"
+            header += f"  _{sid[:8]}_" if sid else ""
             try:
-                await ack.edit_text(
-                    f"✅ *{MACHINE_NAME}* — Claude (`{Path(wd).name}`)\n\n{result}",
-                    parse_mode="Markdown")
+                await ack.edit_text(f"{header}\n\n{result}", parse_mode="Markdown")
             except Exception:
                 await ack.edit_text(f"✅ {MACHINE_NAME} — Claude\n\n{result}")
             return
