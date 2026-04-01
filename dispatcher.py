@@ -324,6 +324,7 @@ async def generate_commit_message(diff: str) -> str:
     try:
         proc = await asyncio.create_subprocess_exec(
             "claude", "-p", prompt, "--output-format", "text",
+            "--dangerously-skip-permissions",
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
         msg = stdout.decode(errors="replace").strip().strip('"').strip("'")
@@ -340,7 +341,8 @@ async def run_claude(prompt: str, work_dir: str, chat_id: int = 0) -> str:
     session_id  = sessions.get(session_key)
 
     cmd = ["claude", "-p", prompt, "--output-format", "json",
-           "--allowedTools", _CLAUDE_ALLOWED_TOOLS]
+           "--allowedTools", _CLAUDE_ALLOWED_TOOLS,
+           "--dangerously-skip-permissions"]
     if session_id:
         cmd += ["--resume", session_id]
 
